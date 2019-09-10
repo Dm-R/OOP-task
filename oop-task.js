@@ -43,7 +43,7 @@ class Company {
             this.eventManager.subscribe('generate', this._boss);
         }
     }
-    generateNewProjs() {//омпания получает новые проекты
+    generateNewProjs() {//компания получает новые проекты
         let countNewProj = Math.floor((Math.random() * 4) + 1);
         for (var j = 0; j < countNewProj; j++) {
             this._newProjects.push(new Project(this._boss));
@@ -116,7 +116,7 @@ class Boss {//директор выступит в качестве посред
         this._departments.push(dep);
     }
     addRemainingProjs(projects) {// добавляем оставшийся проект
-        projects.forEach(proj => proj.wait());
+        projects.forEach(proj => proj.wait());//ржидают разработчика
         this.remainingProjects = this.remainingProjects.concat(projects);
     }
     update(data) {//обрабатываем оповешение о событие
@@ -184,7 +184,7 @@ class Project {
         return Math.ceil(this._complexity / this._countDevs);
     }
     update() {//обрабатываем оповешение от издателя
-        if (this.isWaiting() === false) {
+        if (!this.isWaiting()) {
             this._daysOfDevelopment++;
             if (!(this.getType() == 'qa')) {
                 if (this.getTimeToDo() == this._daysOfDevelopment) {
@@ -235,7 +235,6 @@ class Developer {
 class Department {
     constructor() {
         this.developers = [];//разработчики
-        this.projects = [];//проекты на разработке
         this._boss = null;
     }
     setBoss(boss) {
@@ -272,10 +271,6 @@ class Department {
 }
 
 class Mobile extends Department {
-    constructor() {
-        super();
-        this.freeDevelopers = [];
-    }
     getName() {
         return 'mobile';
     }
@@ -291,7 +286,7 @@ class Mobile extends Department {
             let proj = projects.pop();
             proj.incCountDevelopers();
             this._boss.joinDevToProj(dev, proj);
-            if (proj.getTimeToDo() > proj.getCountDevelopers()) {//если к проекту можно добавить разработчика, то пока оставляем проект
+            if (proj.getComplexity() > proj.getCountDevelopers()) {//если к проекту можно добавить разработчика, то пока оставляем проект
                 projects.unshift(proj);
             }
         }
@@ -342,7 +337,6 @@ function simulate(days) {
     console.log(`Выполнено проектов: ${company.getDoneProjects()};`);
     console.log(`Принято программистов: ${company.getEmployedDevs()};`);
     console.log(`Уволенно программистов: ${company.getDismissedDevs()}.`);
-
 }
 
 simulate(150);
