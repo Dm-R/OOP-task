@@ -179,19 +179,19 @@ class Project {
     this.type = Math.floor(Math.random() * 2 + 1) === 1 ? 'web' : 'mobile'; // тип проекта
     this.daysOfDevelopment = 0; // текущее кол-во дней на разработке
     this.countDevs = 0;
-    this.isWaiting = true; // есле не поступил на разработку, то не будет увеличивать текущее кол-во дней на разработке при оповещении
+    this.waiting = true; // есле не поступил на разработку, то не будет увеличивать текущее кол-во дней на разработке при оповещении
   }
 
   wait() { //
-    this.isWaiting = true;
+    this.waiting = true;
   }
 
   stopWaiting() {
-    this.isWaiting = false;
+    this.waiting = false;
   }
 
   isWaiting() {
-    return this.isWaiting;
+    return this.waiting;
   }
 
   getComplexity() {
@@ -240,7 +240,7 @@ class Developer {
     this.profession = profession; // специальность
     this.freeDays = 0; // кол-во свободных дней
     this.countDoneProjects = 0; // кол-во готовых проектов
-    this.isFree = true; // занят или нет
+    this.free = true; // занят или нет
   }
 
   incDay() { // увеличиваем свободные дни
@@ -250,12 +250,12 @@ class Developer {
   }
 
   setProject() {
-    this.isFree = false;
+    this.free = false;
     this.freeDays = 0;
   }
 
   setFree() {
-    this.isFree = true;
+    this.free = true;
     this.countDoneProjects += 1;
   }
 
@@ -264,7 +264,7 @@ class Developer {
   }
 
   isFree() {
-    return this.isFree;
+    return this.free;
   }
 
   getFreeDays() {
