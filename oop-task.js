@@ -1,42 +1,68 @@
-﻿class Company {
-    constructor() {
+﻿class EventManager {//класс для создания менеджеров событий
+    constructor(...events) {
+        this.listeners = new Map();
+        for (let event of events) {
+            this.listeners.set(event, new Array());
+        }
+    }
+    subscribe(event, ...listeners) {// подписать на событие
+        for (let listener of listeners) {
+            this.listeners.get(event).push(listener);
+        }
+    }
+    unsubscribe(event, listener) {//отписать от события
+        let listeners = this.listeners.get(event).filter((curent) => { return curent !== listener });
+        this.listeners.set(event, listeners);
+    }
+    notify(event, data) {//уведомить подписчиков
+        this.listeners.get(event).forEach(listener => listener.update(data));
+    }
+}
+
+class Company {
+    constructor(manager) {
+        this.eventManager = manager;//менеджер событий(шаблон наблюдатель - издатель будет опевещать подписчиков о событиях)
         this._employedDevs = 0;// принятые программисты
         this._dismissedDevs = 0;// уволенные программисты
         this._doneProjects = 0;// кол-во выполненых проектов
-        this._boss = null;// директор
-        this._departments = [];//отделы
+        this._departments = [];
+        this._newProjects = [];
+        this._boss = null;
     }
-    checkDevsToDismiss() {// проверяем есть ли программисты, которых можно уволить
-        this._departments.forEach(function (dep) {
-            dep.checkDevsToDismiss();
-        })
+    unsubscribe(event, listener) {//метод для отписывания подписчика события
+        this.eventManager.unsubscribe(event, listener);
     }
-    checkProjects() {// прверяем проекты(готовые выполненые)
-        this._departments.forEach((dep) => {
-            dep.checkProjects();
-        })
-    }
-    incDay() {//добавляем день
-        this._departments.forEach(function (dep) {
-            dep.incDay();
-        })
-    }
-    addDepartment(dep) {//добавляем отдел
-        if (dep instanceof Department) {
-            this._departments.push(dep);
-            dep.setBoss(this._boss);//устан. директора для отдела
-            dep.setCompany(this);//устан. компанию для отдела
-            this._boss[dep.name] = dep;//устан. отдел директору
-        }
-    }
-    setBoss(boss) {//устан. директора для компании
+    setBoss(boss) {
         if (boss instanceof Boss) {
             this._boss = boss;
             this._boss.setCompany(this);
+            this._departments.forEach(dep => {
+                dep.setBoss(boss);
+                this._boss.addDepartment(dep);
+            });
+            this.eventManager.subscribe('generate', this._boss);
         }
+    }
+    generateNewProjs() {//компания получает новые проекты
+        let countNewProj = Math.floor((Math.random() * 4) + 1);
+        for (var j = 0; j < countNewProj; j++) {
+            this._newProjects.push(new Project(this._boss));
+        }
+        this.eventManager.subscribe('inc_day', ...this._newProjects);//подписываем проекты на событие 'inc_day' - увеличение дня
+        this.eventManager.notify('generate', this._newProjects);//уведомляем директора о новых проектах
+        this._newProjects = [];//сбрасываем новые проекты
+    }
+    incDay() {//добавляем день               
+        this.eventManager.notify('inc_day', null);//уведомляем подписчиков
     }
     incEmployedDevs() {// увеличиваем кол-во нанятых программистов
         this._employedDevs++;
+    }
+    addDepartment(dep) {//добавляем департамент
+        this._departments.push(dep);
+        this._boss.addDepartment(dep);
+        dep.setBoss(this._boss);
+        this.eventManager.subscribe('inc_day', dep);//подписываем департамент на событие
     }
     getEmployedDevs() {
         return this._employedDevs;
@@ -47,94 +73,97 @@
     getDismissedDevs() {
         return this._dismissedDevs;
     }
-    incDoneProjects(count) {//увеличиваем число выполненых проектов на COUNT штук
-        this._doneProjects += count;
+    incDoneProjects() {//увеличиваем число выполненых проектов на 1
+        this._doneProjects++;
     }
     getDoneProjects() {
         return this._doneProjects;
     }
 }
 
-class Boss {
+class Boss {//директор выступит в качестве посредника
     constructor() {
+        this._projsInDevelopment = new Map();//коллекция для группировки проектов с разработчиками(ключ - проект, значение ключа - разработчики)
         this.remainingProjects = new Array();
-        this.web = null;
-        this.mobile = null;
-        this.qa = null;
+        this._departments = [];
         this.projectsToTest = [];
-        this.doneProjects = [];
-        this._newProjects = [];
-        this._devsToDismiss = [];
         this._company = null;
     }
-    setCompany(company) {// устан. компанию 
+    setCompany(company) {
         this._company = company;
     }
-    setNewProjects(newProj) {// устан новые проекты
-        this._newProjects = newProj;
+    joinDevToProj(dev, proj) {//добавляем разработчика к проекту
+        proj.stopWaiting();
+        if (this._projsInDevelopment.has(proj)) {//если уже есть такой проект, то просто добавляем разработчика
+            this._projsInDevelopment.get(proj).push(dev);
+        } else {// иначе создаем новую пару
+            this._projsInDevelopment.set(proj, [dev])
+        }
+    }
+    incDismissedDevs() {
+        this._company.incDismissedDevs();
+    }
+    removeProject(proj) {//удаляем проект
+        let devs = this._projsInDevelopment.get(proj);
+        devs.forEach(dev => {
+            dev.setFree();
+        });
+        this._projsInDevelopment.delete(proj);
+        this._company.unsubscribe('inc_day', proj);//отписываем от события
+        this._company.incDoneProjects();
+    }
+    addDepartment(dep) {
+        this._departments.push(dep);
     }
     addRemainingProjs(projects) {// добавляем оставшийся проект
+        projects.forEach(proj => proj.wait());//ржидают разработчика
         this.remainingProjects = this.remainingProjects.concat(projects);
     }
-    distrProjects() {//распределяем проекты
-        //если есть вчерашние проекты распределяем их, иначе распределяем новые
-        var projectsToDistr = this.remainingProjects.length > 0 ? this.remainingProjects : this._newProjects;
-        var webProjects = projectsToDistr.filter(function (project) {
-            return project.getType() === 'web';
+    update(data) {//обрабатываем оповешение о событие
+        if (this.remainingProjects.length) {//если есть оставшиеся проекты, то 
+            this.employDevs();// нанимаем новых разработчиков
+            this.distrProjects(this.remainingProjects);
+            this.remainingProjects = [];
+        }
+        let projects = data.concat(this.projectsToTest);//распределяем новые проекты и проекты для тестирования
+        this.projectsToTest = [];
+        this.distrProjects(projects);
+    }
+    distrProjects(projectsToDistr) {//распределяем проекты
+        this._departments.forEach(dep => {
+            let projects = projectsToDistr.filter(proj => { return proj.getType() == dep.getName() });
+            dep.distributeByDevs(projects);
         });
-        if (webProjects.length) {
-            this.web.distributeByDevs(webProjects);
-        }
-        var mobProjects = projectsToDistr.filter(function (project) {
-            return project.getType() === 'mobile';
-        });
-        if (mobProjects.length) {
-            this.mobile.distributeByDevs(mobProjects);
-        }
-        if (this.projectsToTest.length) {
-            var projects = this.projectsToTest;
-            this.qa.distributeByDevs(projects);
-        }
-        //если распределяли вчерашние проекты, то удаляем их из оставшихся
-        if (projectsToDistr == this.remainingProjects) {
-            this.remainingProjects.length = 0;
-        }
     }
     addProjectToTest(project) {//добавляем проект готовый к тестированию
         this.projectsToTest.push(project);
     }
-    addDoneProject(project) {//добавляем выполненый проект
-        this.doneProjects.push(project);
-    }
-    deleteDoneProjects() {//удаляем выполненые проекты
-        this._company.incDoneProjects(this.doneProjects.length);
-        this.doneProjects.forEach(function (dProj) {
-            dProj.developers.forEach((dev) => {
-                dev.incCountDoneProjects();
-                dev.setProject(null);
-            });
-        })
-        this.doneProjects.length = 0
-    }
     employDevs() {// нанимаем новых программистов для реализации оставшихся проектов
-        this.remainingProjects.forEach((rProj) => {
-            switch (rProj.getType()) {
-                case 'web': this.web.addDeveloper(new Developer('web'));
-                    break;
-                case 'mobile': this.mobile.addDeveloper(new Developer('mobile'));
-                    break;
-                case 'qa': this.qa.addDeveloper(new Developer('qa'));
-            }
+        this._departments.forEach(dep => {
+            let projects = this.remainingProjects.filter(rProj => { return rProj.getType() == dep.getName() });
+            projects.forEach(() => dep.addDeveloper());//шаблон фабричный метод(добавит каждому отделу соответствующего разработчика)
+            this._company.incEmployedDevs();
         })
     }
 }
 
 class Project {
-    constructor() {
+    constructor(boss) {
+        this._boss = boss;//директор - посредник
         this._complexity = Math.floor(Math.random() * 3 + 1);  //сложность проекта
         this._type = Math.floor(Math.random() * 2 + 1) == 1 ? 'web' : 'mobile';  //тип проекта
-        this.developers = [];  // разработчики проекта
-        this.daysOfDevelopment = 0;//текущее кол-во дней на разработке
+        this._daysOfDevelopment = 0;//текущее кол-во дней на разработке
+        this._countDevs = 0;
+        this._isWaiting = true;//есле не поступил на разработку, то не будет увеличивать текущее кол-во дней на разработке при оповещении
+    }
+    wait() {//
+        this._isWaiting = true;
+    }
+    stopWaiting() {
+        this._isWaiting = false;
+    }
+    isWaiting() {
+        return this._isWaiting;
     }
     getComplexity() {
         return this._complexity;
@@ -145,184 +174,155 @@ class Project {
     setType(type) {
         this._type = type;
     }
-    setDeveloper(dev) {//устан. программиста для проекта
-        this.developers.push(dev);
+    incCountDevelopers() {//увеличить число программистов разрабатывающих проект
+        this._countDevs++;
+    }
+    getCountDevelopers() {
+        return this._countDevs;
     }
     getTimeToDo() {// количество дней для выполнения проекта 
-        return Math.ceil(this._complexity / this.developers.length);
+        return Math.ceil(this._complexity / this._countDevs);
+    }
+    update() {//обрабатываем оповешение от издателя
+        if (!this.isWaiting()) {
+            this._daysOfDevelopment++;
+            if (!(this.getType() == 'qa')) {
+                if (this.getTimeToDo() == this._daysOfDevelopment) {
+                    this.setType('qa');
+                    this.wait();//ожидает тестировщика
+                    this._daysOfDevelopment = 0;
+                    this._boss.addProjectToTest(this);
+                }
+            } else {
+                if (this._daysOfDevelopment == 1) {
+                    this._boss.removeProject(this);//удаляем готовый проект
+                }
+
+            }
+        }
     }
 }
 class Developer {
     constructor(profession) {
         this.profession = profession;//специальность
-        this._project = null;//проект
-        this.freeDays = 0;//кол-во свободных дней
+        this._freeDays = 0;//кол-во свободных дней
         this._countDoneProjects = 0;//кол-во готовых проектов
+        this._isFree = true;//занят или нет
     }
-    getProject() {
-        return this._project;
+    incDay() {// увеличиваем свободные дни
+        if (this.isFree()) {
+            this._freeDays++;
+        }
     }
-    setProject(proj) {//устан. проект для программиста
-        this._project = proj;
-        this.freeDays = 0;
+    setProject() {
+        this._isFree = false;
+        this._freeDays = 0;
     }
-    incFreeDays() {// увеличиваем свободные дни
-        this.freeDays++;
-    }
-    incCountDoneProjects() {//увеличиваем число готовых проектов
+    setFree() {
+        this._isFree = true;
         this._countDoneProjects++;
     }
     getCountDoneProjects() {
         return this._countDoneProjects;
     }
+    isFree() {
+        return this._isFree;
+    }
+    getFreeDays() {
+        return this._freeDays;
+    }
 }
 class Department {
-    constructor(name) {
-        this.name = name;//название
+    constructor() {
         this.developers = [];//разработчики
-        this.projects = [];//проекты на разработке
-        this._boss = null;//директор
-        this._company = null;//компания
+        this._boss = null;
     }
-    setBoss(boss) {//устан. директора
-        if (boss instanceof Boss) {
-            this._boss = boss;
+    setBoss(boss) {
+        this._boss = boss;
+    }
+    update() {  //обрабатываем оповещение от издателя             
+        this.checkDevsToDismiss();
+        this.developers.forEach(dev => dev.incDay());
+    }
+
+    checkDevsToDismiss() {//проверяем разработчиков для увольнения
+        let devsToDismiss = this.developers.filter(dev => { return dev.getFreeDays() > 3 });
+        if (devsToDismiss.length) {
+            devsToDismiss.sort((dev1, dev2) => { return dev1.getCountDoneProjects() - dev2.getCountDoneProjects() });
+            let dismissedDev = devsToDismiss.pop();
+            this._boss.incDismissedDevs();
+            this.developers = this.developers.filter(dev => dev !== dismissedDev);
         }
     }
-    setCompany(company) {
-        this._company = company;
-    }
-    joinDevToProj(dev, proj) {//устан. проекта программисту и наоборот
-        dev.setProject(proj);
-        proj.setDeveloper(dev);
-    }
-    addDeveloper(dev) {// добавляем программиста
-        this.developers.push(dev);
-        this._company.incEmployedDevs();
-    }
+
     distributeByDevs(projects) {  //метод распределения проектов по разработчикам
-        for (var dev = 0; dev < this.developers.length; dev++) {
-            if (projects.length) {
-                if (this.developers[dev].getProject() === null) {
-                    var project = projects.pop();
-                    this.joinDevToProj(this.developers[dev], project);
-                    this.projects.push(project);  //проекты принятые на разработку
-                }
-            } else {
-                break;
-            }
+        let freeDevs = this.developers.filter(dev => { return dev.isFree() });
+        while (projects.length && freeDevs.length) {
+            let dev = freeDevs.pop();
+            dev.setProject();
+            let proj = projects.pop();
+            proj.incCountDevelopers();
+            this._boss.joinDevToProj(dev, proj);
         }
         if (projects.length) {//если есть проекты для разработки которых нет ресурсов, то возвращаем их директору
             this._boss.addRemainingProjs(projects);
         }
     }
-    checkDevsToDismiss() { //проверяем разработчиков(увольнение)          
-        if (this.developers.length) {
-            var isToDismiss = false;
-            var index = 0;
-            var min = this.developers[0];
-            this.developers.forEach(function (dev, ind) {
-                if (dev.freeDays >= 3) {
-                    if (dev.getCountDoneProjects() < min.getCountDoneProjects()) {
-                        min = dev;
-                        index = ind;
-                        isToDismiss = true;
-                    }
-                }
-            });
-            if (isToDismiss) {
-                delete this.developers[index];
-                this.developers = this.developers.filter((dev) => {
-                    return (dev !== 'undefined');
-                })
-                this._company.incDismissedDevs();
-            }
-        }
-    }
-    checkProjects() {//проверяем проекты(готов или нет)
-        if (this.projects.length) {
-            this.projects.forEach((proj, ind) => {
-                if (proj.daysOfDevelopment == proj.getTimeToDo()) {
-                    proj.daysOfDevelopment = 0;
-                    proj.setType('qa');
-                    this._boss.addProjectToTest(proj);
-                    delete this.projects[ind];
-                }
-            });
-            this.projects = this.projects.filter((proj) => {
-                return proj !== 'undefined';
-            })
-        }
-    }
-    incDay() {//увеличиваем день
-        if (this.developers.length) {
-            this.developers.forEach(function (dev) {
-                if (dev.getProject() === null) {
-                    dev.incFreeDays();
-                }
-            });
-        }
-        if (this.projects.length) {
-            this.projects.forEach(function (proj) {
-                proj.daysOfDevelopment++;
-            });
-        }
-    }
 }
+
 class Mobile extends Department {
-    constructor(name) {
-        super(name);
-        this.freeDevelopers = [];
+    getName() {
+        return 'mobile';
     }
-    distributeByDevs(projects) {//распределяем проекты по разработчикам
-        super.distributeByDevs(projects);//из родительского класса пытаемся распределить по одному разработчику на проект
-        //если остались свободные разработчики пытаемся распределить их по проектам сложность которых выше 1
-        this.freeDevelopers = this.developers.filter(function (developer) {  //свободные программисты
-            return developer.getProject() === null;
-        });
-        if (this.freeDevelopers.length != 0) {
-            var difficultProjects = this.projects.filter(function (pro) {  //Проекты к которым можно добавить программиста
-                return pro.getComplexity() > pro.developers.length;
-            });
-            while (this.freeDevelopers.length && difficultProjects.length) {
-                for (var proj = 0; proj < this.projects.length; proj++) {
-                    if (this.projects[proj].getComplexity() > this.projects[proj].developers.length) {
-                        if (this.freeDevelopers.length > 0) {  // если есть свободные программисты, то присоединяем одного из них(последнего
-                            this.joinDevToProj(this.freeDevelopers.pop(), this.projects[proj]);  // в массиве - метод POP()) к текущему проекту 
-                        }  // иначе прерываем цикл
-                        else {
-                            break;
-                        }
-                    }
-                }
-                difficultProjects = this.projects.filter(function (pro) {
-                    return pro.getComplexity() > pro.developers.length;
-                });
+    addDeveloper() {//шаблон фабричный метод(каждый отдел добавляет соответствующего разработчика)
+        let dev = new Developer('mobile');
+        this.developers.push(dev);
+    }
+    distributeByDevs(projects) {  //метод распределения проектов по разработчикам
+        let freeDevs = this.developers.filter(dev => { return dev.isFree() });
+        while (projects.length && freeDevs.length) {
+            let dev = freeDevs.pop();
+            dev.setProject();
+            let proj = projects.pop();
+            proj.incCountDevelopers();
+            this._boss.joinDevToProj(dev, proj);
+            if (proj.getComplexity() > proj.getCountDevelopers()) {//если к проекту можно добавить разработчика, то пока оставляем проект
+                projects.unshift(proj);
             }
+        }
+        if (projects.length) {//если есть проекты для разработки которых нет ресурсов, то возвращаем их директору
+            let projectsToRemain = projects.filter(proj => { return proj.getCountDevelopers() == 0 });
+            this._boss.addRemainingProjs(projectsToRemain);
         }
     }
 }
 class Qa extends Department {
-    constructor(name) {
-        super(name);
+    addDeveloper() {
+        let dev = new Developer('qa');
+        this.developers.push(dev);
     }
-    checkProjects() {//проверяем проекты(завершен или нет)
-        this.projects.forEach((proj) => {
-            if (proj.daysOfDevelopment == 1) {
-                this._boss.addDoneProject(proj);
-            }
-        });
+    getName() {
+        return 'qa';
+    }
+}
+
+class Web extends Department {
+    addDeveloper() {
+        let dev = new Developer('web');
+        this.developers.push(dev);
+    }
+    getName() {
+        return 'web';
     }
 }
 
 function simulate(days) {
-    var company = new Company();
+    var manager = new EventManager('inc_day', 'generate');
+    var company = new Company(manager);
     var boss = new Boss();
-    var web = new Department('web');
-    var mobile = new Mobile('mobile');
-    var qa = new Qa('qa');
-    var countNewProj = 0;
-    var newProj = [];
+    var web = new Web();
+    var mobile = new Mobile();
+    var qa = new Qa();
 
     company.setBoss(boss);
     company.addDepartment(web);
@@ -330,23 +330,13 @@ function simulate(days) {
     company.addDepartment(qa);
 
     for (var i = 0; i < days; i++) {
-        if (boss.remainingProjects.length) {
-            boss.employDevs();
-            boss.distrProjects();
-        }
-        countNewProj = Math.floor((Math.random() * 4) + 1);
-        newProj = [];
-        for (var j = 0; j < countNewProj; j++) {
-            newProj.push(new Project());
-        }
-        boss.setNewProjects(newProj);
-        company.checkProjects();
-        if (boss.doneProjects.length) {
-            boss.deleteDoneProjects();
-        }
-        boss.distrProjects();
-        company.checkDevsToDismiss();
+        company.generateNewProjs();
         company.incDay();
     }
-    console.log(`Выполнено проектов: ${company.getDoneProjects()}, принято программистов: ${company.getEmployedDevs()}, уволенно программистов: ${company.getDismissedDevs()}.`);
+    console.log(`Статистика за ${days} дней:`)
+    console.log(`Выполнено проектов: ${company.getDoneProjects()};`);
+    console.log(`Принято программистов: ${company.getEmployedDevs()};`);
+    console.log(`Уволенно программистов: ${company.getDismissedDevs()}.`);
 }
+
+simulate(150);
